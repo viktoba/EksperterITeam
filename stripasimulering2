@@ -1,0 +1,453 @@
+##This code is relased for the purpose of review and timely desimination.
+##All rights are retained by the authors and the University of Minnesota
+##Authors: Ioannis Karamouzas, Brian Skinner, and Stephen J. Guy
+##Contact: sjguy@cs.umn.edu
+
+
+import random as rnd
+from tkinter import *
+import time
+from math import sin, cos, sqrt, exp
+import numpy as np
+import os
+os.chdir('/Users/HaakonGryvill/Documents/Hjem/Mine dokumenter/8. semester (NTNU)/Matematikk innen anvendelser - Eksperter i team (TMA4850)/Kode/Plots')
+import matplotlib.pyplot as plt
+# Bare sight framover, ikke bakover
+# Environmental Specifciation
+num = 6  # number of agents
+s = 10  # environment size in meters
+
+# Agent Parameters (play with these)
+k = 1.5 # Kræsjing: Liten k gir liten følsomhet, stor k gir stor følsomhet, k er konstanten i energiuttrykket
+m = 2.0 # Liten m gir liten følsomhet for kræsjing, det ser også ut som den røde sirkelen akselererer raskere
+t0 = 3
+rad = 0.1  # Collision radius
+sight = 1  # Neighbor search range
+maxF = 5  # Maximum force/acceleration
+dt = 0.02 # Time step in Forward Euler
+pixelsize = 500
+walls  = np.zeros((4*pixelsize-4, 2)) # koordinatene til veggene
+framedelay = 30
+drawVels = True
+randomness_factor = 4 # Stor faktor gir store tilfeldigheter i retningen til personene
+win = Tk()
+canvas = Canvas(win, width=pixelsize+10, height=pixelsize+10, background="#444")
+canvas.pack()
+
+figNames = "13" # Navn på figurene du vil lagre
+lagre = True # True hvis du vil lagre bildene, False ellers
+
+# Initalized variables
+ittr = 0
+c = []  # center of agent
+v = []  # velocity
+gv = np.zeros(2)  # goal velocity
+nbr = []  # neighbour list
+nd = []  # neighbour distance list
+QUIT = False
+paused = True
+step = False
+
+circles = []
+velLines = []
+gvLines = []
+
+def makeWalls(pixelsize,s):
+    for i in range(pixelsize):
+        c.append(np.array([i*s/pixelsize,0]))
+        c.append(np.array([s,s*i/pixelsize]))
+        c.append(np.array([(pixelsize-i)*s/pixelsize,s]))
+        c.append(np.array([0,(pixelsize-i)*s/pixelsize]))
+        v.append(np.array([0,0]))
+        v.append(np.array([0,0]))
+        v.append(np.array([0,0]))
+        v.append(np.array([0,0]))
+    """
+    for i in range(0, 100):
+        np.delete(c, i*4-i,0) 
+        np.delete(v, i*4-i,0)
+    """
+
+
+def makeStripa(pixelsize, s):
+    for i in range(int(pixelsize/5)): # horisontale vegger
+        c.append(np.array([i*s/pixelsize,s*3/5]))
+        c.append(np.array([2/5*s+i*s/pixelsize,s*3/5]))
+        c.append(np.array([s*4/5+i*s/pixelsize,s*3/5]))
+        c.append(np.array([i*s/pixelsize,s*2/5]))
+        c.append(np.array([2/5*s+i*s/pixelsize,s*2/5]))
+        c.append(np.array([4/5*s+i*s/pixelsize,s*2/5]))
+        c.append(np.array([s*1/5+i*s/pixelsize,s*(3/5+1/20)]))
+        c.append(np.array([s*3/5+i*s/pixelsize,s*(3/5+1/20)]))
+        c.append(np.array([s*1/5+i*s/pixelsize,s*(2/5-1/20)]))
+        c.append(np.array([s*3/5+i*s/pixelsize,s*(2/5-1/20)]))
+
+    for i in range(int(pixelsize/20)): # vertikale vegger
+        c.append(np.array([s/5,i*s/pixelsize+s*3/5]))
+        c.append(np.array([s*2/5,i*s/pixelsize+s*3/5]))
+        c.append(np.array([s*3/5,i*s/pixelsize+s*3/5]))
+        c.append(np.array([s*4/5,i*s/pixelsize+s*3/5]))
+        c.append(np.array([s/5,-i*s/pixelsize+s*2/5]))
+        c.append(np.array([s*2/5,-i*s/pixelsize+s*2/5]))
+        c.append(np.array([s*3/5,-i*s/pixelsize+s*2/5]))
+        c.append(np.array([s*4/5,-i*s/pixelsize+s*2/5]))
+
+    for i in range(len(c)):
+        v.append(np.array([0,0]))
+
+
+
+def initSim():
+    global rad, c, v, gv
+
+    print("")
+    #print("Simulation of Agents on a flat 2D torus.")
+    print("Agents avoid collisions using prinicples based on the laws of anticipation seen in human pedestrians.")
+    print("Agents are white circles, Red agent moves faster.")
+    print("Green Arrow is Goal Velocity, Red Arrow is Current Velocity")
+    print("SPACE to pause, 'S' to step frame-by-frame, 'V' to turn the velocity display on/off.")
+    print("")
+
+    for i in range(num):
+
+        #print(np.array(c).shape)
+
+        circles.append(canvas.create_oval(0, 0, rad, rad, fill="white"))
+        velLines.append(canvas.create_line(0, 0, 10, 10, fill="red"))
+        gvLines.append(canvas.create_line(0, 0, 10, 10, fill="green"))
+        """
+        c = np.vstack((np.zeros(2), c))
+        v = np.vstack((np.zeros(2),v))
+        gv = np.vstack((np.zeros(2), gv))
+        c[0][0] = rnd.uniform(0, s)
+        c[0][1] = rnd.uniform(2*s/5, 3*s/5)
+
+        ang = rnd.uniform(0, 2 * 3.141592)
+        v[0][0] = np.random.normal(1, 1)*cos(ang)
+        v[0][1] = np.random.normal(0.1, 1)*sin(ang)
+        #gv[0] = 1.5 * np.array(v[0][0],v[0][1])
+        gv[0] = np.array([np.random.normal(0,1),0])
+        """
+
+    c = np.vstack((np.zeros((num,2)), c))
+    v = np.vstack((np.zeros((num,2)),v))
+
+    for i in range(int(num/2)):
+        c[i][0] = 3
+        c[i][1] = 2*s/5+s*(i+1)/20
+        c[i+int(num/2)][0] = 7
+        c[i+int(num/2)][1] = 2*s/5+s*(i+1)/20
+
+        v[i][0] = 1
+        v[i][1] = 0
+        v[i+int(num/2)][0] = -1
+        v[i+int(num/2)][1] = 0
+
+    gv = np.copy(v)
+
+    np.delete(gv,-1)
+    for i in range(num, len(c)):
+        circles.append(canvas.create_oval(0, 0, s/(2*pixelsize), s/(2*pixelsize), fill="black"))
+    c = np.array(c)
+
+
+def drawWorld():
+    global rad, s
+    for i in range(len(c)):
+        scale = pixelsize / s
+        canvas.coords(circles[i], scale * (c[i][0] - rad), scale * (c[i][1] - rad), scale * (c[i][0] + rad),
+                      scale * (c[i][1] + rad))
+
+    for i in range(num):
+        scale = pixelsize / s
+        canvas.coords(velLines[i], scale * c[i][0], scale * c[i][1], scale * (c[i][0] + 1. * rad * v[i][0]),
+                      scale * (c[i][1] + 1. * rad * v[i][1]))
+        canvas.coords(gvLines[i], scale * c[i][0], scale * c[i][1], scale * (c[i][0] + 1. * rad * gv[i][0]),
+                      scale * (c[i][1] + 1. * rad * gv[i][1]))
+        if drawVels:
+            canvas.itemconfigure(velLines[i], state="normal")
+            canvas.itemconfigure(gvLines[i], state="normal")
+        else:
+            canvas.itemconfigure(velLines[i], state="hidden")
+            canvas.itemconfigure(gvLines[i], state="hidden")
+
+        double = False
+        newX = c[i][0]
+        newY = c[i][1] # Hva skjer hvis vi fjerner dette?
+
+        if c[i][0] < rad:
+            newX += s
+            double = True
+        if c[i][0] > s - rad:
+            newX -= s
+            double = True
+        if c[i][1] < rad:
+            newY += s
+            double = True
+        if c[i][1] > s - rad:
+            newY -= s
+            double = True
+        if double:
+            pass
+            # canvas.coords(circles[i],scale*(newX-rad),scale*(newY-rad),scale*(newX+rad),scale*(newY+rad))
+
+        # indicate velocity and goal velocities
+
+
+def findNeighbors():
+    global nbr, nd, c, v
+
+    nbr = []
+    nd = []
+    for i in range(num):
+        vel_angle = np.arctan2(v[i][1],v[i][0])
+        nbr.append([])
+        nd.append([])
+        for j in range(len(c)):
+            if i == j: continue;
+            d = c[i] - c[j]
+            d_angle = np.arctan2(d[1],d[0])
+
+
+            #if d[0] > s / 2.: d[0] = s - d[0]
+            #if d[1] > s / 2.: d[1] = s - d[1]
+            #if d[0] < -s / 2.: d[0] = d[0] + s
+            #if d[1] < -s / 2.: d[1] = d[1] + s
+            l2 = d.dot(d)
+            s2 = sight ** 2
+            #print("d_angle:", d_angle)
+            #print("vel_angle:", vel_angle)
+            if l2 < s2 and abs(d_angle-vel_angle)>np.pi/2:
+                nbr[i].append(j)
+                nd[i].append(sqrt(l2))
+        #for k in range(len(walls[0])):
+        #    d = c[i] - walls[k]
+        #    l2 = d.dot(d)
+        ##    s2 = sight ** 2
+        #    if l2 < s2:
+        #        nbr[i].append(j)
+        #        nd[i].append(sqrt(l2))
+
+def E(t):
+    return (B / t ** m) * exp(-t / t0)
+
+
+def rdiff(pa, pb, va, vb, ra, rb):
+    p = pb - pa  # relative position
+    return (sqrt(p.dot(p)))
+
+
+def ttc(pa, pb, va, vb, ra, rb):
+    maxt = 999
+
+    p = pb - pa  # relative position
+    #if p[0] > s / 2.: p[0] = p[0] - s
+    #if p[1] > s / 2.: p[1] = p[1] - s
+    #if p[0] < -s / 2.: p[0] = p[0] + s
+    #if p[1] < -s / 2.: p[1] = p[1] + s
+    rv = vb - va  # relative velocity
+
+    a = rv.dot(rv)
+    b = 2 * rv.dot(p)
+    c = p.dot(p) - (ra + rb) ** 2
+
+    det = b * b - 4 * a * c
+    t1 = maxt;
+    t2 = maxt
+    if (det > 0):
+        t1 = (-b + sqrt(det)) / (2 * a)
+        t2 = (-b - sqrt(det)) / (2 * a)
+    t = min(t1, t2)
+
+    if (t < 0 and max(t1, t2) > 0):  # we are colliding
+        t = 100  # maybe should be 0?
+    if (t < 0): t = maxt
+    if (t > maxt): t = maxt
+
+    #if t < 10: print(t)
+
+    return t
+
+
+def dE(pa, pb, va, vb, ra, rb): # Endring i energi i x- og y-retning
+    global k, m, t0
+    INFTY = 999
+    maxt = 999
+
+    w = pb - pa;
+    #if w[0] > s / 2.: w[0] = w[0] - s  # wrap around for torus
+    #if w[1] > s / 2.: w[1] = w[1] - s
+    #if w[0] < -s / 2.: w[0] = w[0] + s
+    #if w[1] < -s / 2.: w[1] = w[1] + s
+    v = va - vb;
+    radius = ra + rb
+    dist = sqrt(w[0] ** 2 + w[1] ** 2)
+    if radius > dist: radius = .99 * dist
+    a = v.dot(v);
+    b = w.dot(v);
+    c = w.dot(w) - radius * radius;
+    discr = b * b - a * c;
+    if (discr < 0) or (a < 0.001 and a > - 0.001): return np.array([0, 0])
+    discr = sqrt(discr);
+    t1 = (b - discr) / a;
+
+    t = t1
+
+    if (t < 0): return np.array([0, 0])
+    if (t > maxt): return np.array([0, 0])
+
+    d = k * exp(-t / t0) * (v - (v * b - w * a) / (discr)) / (a * t ** m) * (m / t + 1 / t0)
+    return d
+
+def F_hardsphere():
+    global c, v, s, pixelsize
+    collisionLastFrame = np.zeros([len(v),len(v)]) # Element i,j er 1 hvis element i og j kolliderte i forrige frame
+    collisionWithWall = np.zeros(num) # person kolliderte med person i forrige frame
+    # Må sjekke at de ikke kolliderte i forrige frame
+    #print("Avstand:",sqrt(((c[0,0]-c[1,0]) ** 2) + ((c[1,1]-c[0,1]) ** 2)))
+    for i in range(num):
+        for j in range(i+1, len(v)): # egentlig: for j in range(i+1, len(v)):
+            d = c[i]-c[j]
+            #print("distance:", sqrt(d[0]**2+d[1]**2))
+            if (sqrt((d[0]**2)+(d[1]**2))<2*rad) and collisionLastFrame[i,j]==False and collisionWithWall[i]==False: # Kollisjon
+                collisionLastFrame[i, j] = 1
+                print("d:", d)
+                print("Kollisjon!")
+                if j < num: # kollisjon mellom to personer
+                    d_angle = np.arctan2(d[1],d[0])
+                    #print(d_angle)
+                    unit_vec = np.array([np.cos(d_angle),np.sin(d_angle)])
+                    #print("unit vec",unit_vec)
+                    v_i_parallell = np.dot(v[i], unit_vec)*unit_vec
+                    v_j_parallell = np.dot(v[j], unit_vec)*unit_vec
+                    #print("i parallell:", v_i_parallell, "j parallell:", v_j_parallell)
+                    v[i] += -v_i_parallell + v_j_parallell
+                    v[j] += v_i_parallell - v_j_parallell
+                    #print("v_i:", v[i])
+                    #print("v_j:", v[j])
+                else: # kollisjon med vegg
+                    v[i,1] = -v[i,1] # må implementere kollisjon med vertikal vegg
+                    collisionWithWall[i] = 1
+            elif (sqrt((d[0]**2)+(d[1]**2))<2*rad):
+                collisionLastFrame[i, j] = 1
+            #else:
+            #    collisionLastFrame[i,j] = 0
+    for i in range(num, len(v)):
+        v[i][0] = 0
+        v[i][1] = 0
+
+def update(dt):
+    global c
+    findNeighbors()
+
+    F = []  # force
+
+    for i in range(num):
+        F.append(np.zeros(2))
+
+    for i in range(num):
+        # F.append(np.zeros(2))
+
+        # vp = 1.4*v[i]/sqrt(v[i].dot(v[i]))
+        F[i] += (gv[i] - v[i])
+
+        F[i] += np.array([rnd.uniform(-randomness_factor, randomness_factor), rnd.uniform(-randomness_factor, randomness_factor)])
+
+        for n, j in enumerate(nbr[i]):  # j is neighboring agent
+
+
+            t = ttc(c[i], c[j], v[i], v[j], rad, rad)
+
+            d = c[i] - c[j]
+            #if d[0] > s / 2.: d[0] = d[0] - s  # wrap around for torus
+            #if d[1] > s / 2.: d[1] = d[1] - s
+            #if d[0] < -s / 2.: d[0] = s + d[0]
+            #if d[1] < -s / 2.: d[1] = s + d[1]
+    
+            r = rad;
+            dist = sqrt(d.dot(d))
+            if dist < 2 * rad: r = dist / 2.001;  # shrink overlapping agents
+            """
+            #dEdx = dE(c[i], c[j], v[i], v[j], r, r)
+            #FAvoid = -dEdx
+            #print("Favoid:",FAvoid)
+
+            if (n > num):
+                FAvoid = FAvoid*rad
+            mag = np.sqrt(FAvoid.dot(FAvoid))
+            if (mag > maxF): FAvoid = maxF * FAvoid / mag
+
+            #F[i] += FAvoid
+            #if j < i: continue
+            """
+            # if (t < 999): print t, dEdx
+    F_hardsphere()
+    for i in range(num):
+        a = F[i]
+        v[i] += a * dt
+        c[i] += v[i] * dt
+
+        #if c[i][0] < 0: c[i][0] = s  # wrap around for torus
+        #if c[i][1] < 0: c[i][1] = s
+        #if c[i][0] > s: c[i][0] = 0
+        #if c[i][1] > s: c[i][1] = 0
+
+
+def on_key_press(event):
+    global paused, step, QUIT, drawVels
+    if event.keysym == "space":
+        paused = not paused
+    if event.keysym == "s":
+        step = True
+        paused = False
+    if event.keysym == "v":
+        drawVels = not drawVels
+    if event.keysym == "Escape":
+        QUIT = True
+
+
+def drawFrame(dt=0.05):
+    global start_time, step, paused, ittr, figNames
+
+    if ittr > maxIttr or QUIT:  # Simulation Loop
+        print("%s iterations ran ... quitting" % ittr)
+        win.destroy()
+    else:
+        elapsed_time = time.time() - start_time
+        start_time = time.time()
+        if not paused:
+            # if ittr%100 == 0 : print ittr,"/",maxIttr
+            update(dt)
+            ittr += 1
+        drawWorld()
+        if step == True:
+            step = False
+            paused = True
+
+            # win.title("K.S.G. 2014 (Under Review) - " + str(round(1/elapsed_time,1)) +  " FPS")
+        win.title("K.S.G. 2014 (Under Review)")
+        if lagre==True:
+            filename = str(ittr)+"_"+figNames+".ps"
+            filenames.append(filename)
+            canvas.postscript(file=filename, colormode='color')
+        win.after(framedelay, drawFrame)
+
+
+
+#makeWalls(pixelsize, s)
+makeStripa(pixelsize, s)
+# win.on_resize=resize
+win.bind("<space>", on_key_press)
+win.bind("s", on_key_press)
+win.bind("<Escape>", on_key_press)
+win.bind("v", on_key_press)
+
+initSim();
+
+maxIttr = 5000
+filenames = []
+#print("c:",c)
+#print("v:",v)
+start_time = time.time()
+win.after(framedelay, drawFrame)
+mainloop()
